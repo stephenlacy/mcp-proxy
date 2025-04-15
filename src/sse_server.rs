@@ -46,7 +46,7 @@ pub async fn run_sse_server(
         sse_path: "/sse".to_string(),
         post_path: "/message".to_string(),
         ct: CancellationToken::new(),
-        sse_keep_alive: sse_settings.keep_alive,
+        // sse_keep_alive: sse_settings.keep_alive,
     };
 
     let mut command = Command::new(&stdio_params.command);

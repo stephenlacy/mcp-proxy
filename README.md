@@ -12,7 +12,7 @@
 
 ```bash
 # from crates.io
-cargo install rmpc-proxy
+cargo install rmcp-proxy
 
 cargo install --git https://github.com/stephenlacy/mcp-proxy
 ```
