@@ -2,12 +2,12 @@
  * Create a local SSE server that proxies requests to a stdio MCP server.
  */
 use rmcp::{
-    Error, RoleClient, RoleServer, ServerHandler,
     model::{
         CallToolRequestParam, CallToolResult, ClientInfo, Content, Implementation, ListToolsResult,
         PaginatedRequestParam, ServerInfo,
     },
     service::{RequestContext, RunningService},
+    Error, RoleClient, RoleServer, ServerHandler,
 };
 use std::sync::Arc;
 use tokio::sync::Mutex;
