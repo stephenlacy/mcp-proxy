@@ -1,12 +1,13 @@
+use http::HeaderName;
 /**
  * Create a local server that proxies requests to a remote server over SSE.
  */
 use rmcp::{
-    ServiceExt,
     model::{ClientCapabilities, ClientInfo},
     transport::{sse::SseTransport, stdio},
+    ServiceExt,
 };
-use std::{collections::HashMap, error::Error as StdError};
+use std::{collections::HashMap, error::Error as StdError, str::FromStr};
 use tracing::info;
 
 use crate::proxy_handler::ProxyHandler;
@@ -23,14 +24,19 @@ pub struct SseClientConfig {
 pub async fn run_sse_client(config: SseClientConfig) -> Result<(), Box<dyn StdError>> {
     info!("Running SSE client with URL: {}", config.url);
 
-    // Create SSE transport with default client
-    // Note: We're not using custom headers right now, but we could extend this in the future
-    if !config.headers.is_empty() {
-        info!("Note: Custom headers are not currently supported for SSE transport");
+    // Create the header map
+    let mut headers = reqwest::header::HeaderMap::new();
+    for (key, value) in config.headers {
+        headers.insert(HeaderName::from_str(&key)?, value.parse()?);
     }
 
+    // Create the reqwest client to be by the SSE client.
+    let client = reqwest::Client::builder()
+        .default_headers(headers)
+        .build()?;
+
     // Create SSE transport
-    let transport = SseTransport::start(&config.url).await?;
+    let transport = SseTransport::start_with_client(&config.url, client).await?;
 
     // Create client info with full capabilities to ensure we can use all the server's features
     let client_info = ClientInfo {

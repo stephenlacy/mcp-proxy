@@ -10,7 +10,7 @@ use rmcp_proxy::{
 };
 use std::{collections::HashMap, env, error::Error, net::SocketAddr, time::Duration};
 use tracing::debug;
-use tracing_subscriber::{EnvFilter, layer::SubscriberExt, util::SubscriberInitExt};
+use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 /// MCP Proxy CLI arguments
 #[derive(Parser)]

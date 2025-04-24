@@ -3,12 +3,12 @@ use crate::proxy_handler::ProxyHandler;
  * Create a local SSE server that proxies requests to a stdio MCP server.
  */
 use rmcp::{
-    ServiceExt,
     model::{ClientCapabilities, ClientInfo},
     transport::{
         child_process::TokioChildProcess,
         sse_server::{SseServer, SseServerConfig},
     },
+    ServiceExt,
 };
 use std::{collections::HashMap, error::Error as StdError, net::SocketAddr, time::Duration};
 use tokio::process::Command;
