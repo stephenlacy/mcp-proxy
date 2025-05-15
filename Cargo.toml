@@ -12,7 +12,7 @@ name = "mcp-proxy"
 path = "src/bin/mcp-proxy.rs"
 
 [dependencies]
-rmcp = { version = "0.1.5", features = [
+rmcp = { git = "https://github.com/modelcontextprotocol/rust-sdk", branch = "main", features = [
   "server",
   "client",
   "transport-sse-server",

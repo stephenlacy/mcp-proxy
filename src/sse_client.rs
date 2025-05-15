@@ -4,7 +4,10 @@ use http::HeaderName;
  */
 use rmcp::{
     model::{ClientCapabilities, ClientInfo},
-    transport::{sse::SseTransport, stdio},
+    transport::{
+        sse::{ReqwestSseClient, SseTransport},
+        stdio,
+    },
     ServiceExt,
 };
 use std::{collections::HashMap, error::Error as StdError, str::FromStr};
@@ -35,8 +38,10 @@ pub async fn run_sse_client(config: SseClientConfig) -> Result<(), Box<dyn StdEr
         .default_headers(headers)
         .build()?;
 
+    let sse_client = ReqwestSseClient::new_with_client(&config.url, client).await?;
+
     // Create SSE transport
-    let transport = SseTransport::start_with_client(&config.url, client).await?;
+    let transport = SseTransport::start_with_client(sse_client).await?;
 
     // Create client info with full capabilities to ensure we can use all the server's features
     let client_info = ClientInfo {

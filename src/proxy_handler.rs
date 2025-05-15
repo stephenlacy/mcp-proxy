@@ -29,7 +29,7 @@ impl ServerHandler for ProxyHandler {
 
     async fn list_tools(
         &self,
-        request: PaginatedRequestParam,
+        request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
     ) -> Result<ListToolsResult, Error> {
         let client = self.client.clone();
@@ -99,7 +99,7 @@ impl ServerHandler for ProxyHandler {
 
     async fn list_resources(
         &self,
-        request: PaginatedRequestParam,
+        request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::ListResourcesResult, Error> {
         // Get a lock on the client
@@ -175,7 +175,7 @@ impl ServerHandler for ProxyHandler {
 
     async fn list_resource_templates(
         &self,
-        request: PaginatedRequestParam,
+        request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::ListResourceTemplatesResult, Error> {
         // Get a lock on the client
@@ -208,7 +208,7 @@ impl ServerHandler for ProxyHandler {
 
     async fn list_prompts(
         &self,
-        request: PaginatedRequestParam,
+        request: Option<PaginatedRequestParam>,
         _context: RequestContext<RoleServer>,
     ) -> Result<rmcp::model::ListPromptsResult, Error> {
         // Get a lock on the client
