@@ -1,4 +1,7 @@
-use http::HeaderName;
+use http::{header::AUTHORIZATION, HeaderName, HeaderValue};
+use log::debug;
+use reqwest::Client as HttpClient;
+
 /**
  * Create a local server that proxies requests to a remote server over SSE.
  */
@@ -10,10 +13,15 @@ use rmcp::{
     },
     ServiceExt,
 };
-use std::{collections::HashMap, error::Error as StdError, str::FromStr};
+use std::{collections::HashMap, error::Error as StdError, str::FromStr, sync::Arc};
 use tracing::info;
 
-use crate::proxy_handler::ProxyHandler;
+use crate::{
+    auth::AuthClient,
+    coordination::{self, AuthCoordinationResult},
+    proxy_handler::ProxyHandler,
+    utils::DEFAULT_CALLBACK_PORT,
+};
 
 /// Configuration for the SSE client
 pub struct SseClientConfig {
@@ -27,10 +35,74 @@ pub struct SseClientConfig {
 pub async fn run_sse_client(config: SseClientConfig) -> Result<(), Box<dyn StdError>> {
     info!("Running SSE client with URL: {}", config.url);
 
+    let http_client = HttpClient::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+
+    let req = http_client.get(&config.url).send().await?;
+    let auth_config = match req.status() {
+        reqwest::StatusCode::OK => {
+            info!("No authentication required");
+            None
+        }
+        reqwest::StatusCode::UNAUTHORIZED => {
+            info!("Authentication required");
+
+            let auth_client = Arc::new(AuthClient::new(config.url.clone(), DEFAULT_CALLBACK_PORT)?);
+            let server_url_hash = auth_client.get_server_url_hash().to_string();
+            // Coordinate auth with other processes
+            let auth_result = coordination::coordinate_auth(
+                &server_url_hash,
+                auth_client.clone(),
+                DEFAULT_CALLBACK_PORT,
+                None,
+            )
+            .await?;
+
+            // Get auth config
+            let auth_config = match auth_result {
+                AuthCoordinationResult::HandleAuth { auth_url } => {
+                    info!("Opening browser for authentication. If it doesn't open automatically, please visit this URL:");
+                    info!("{}", auth_url);
+
+                    coordination::handle_auth(auth_client.clone(), &auth_url, DEFAULT_CALLBACK_PORT)
+                        .await?
+                }
+                AuthCoordinationResult::WaitForAuth { lock_file } => {
+                    debug!("Another instance is handling authentication. Waiting...");
+
+                    coordination::wait_for_auth(auth_client.clone(), &lock_file).await?
+                }
+                AuthCoordinationResult::AuthDone { auth_config } => {
+                    info!("Using existing authentication");
+                    auth_config
+                }
+            };
+            Some(auth_config)
+        }
+        _ => {
+            return Err(format!("Unexpected response: {:?}", req.status()).into());
+        }
+    };
+
     // Create the header map
     let mut headers = reqwest::header::HeaderMap::new();
     for (key, value) in config.headers {
         headers.insert(HeaderName::from_str(&key)?, value.parse()?);
+    }
+
+    if let Some(auth_config) = auth_config {
+        if auth_config.access_token.is_none() {
+            return Err("Access token is empty".into());
+        }
+        // Add the authentication headers
+        headers.insert(
+            AUTHORIZATION,
+            HeaderValue::from_str(&format!(
+                "Bearer {}",
+                auth_config.access_token.as_ref().unwrap()
+            ))?,
+        );
     }
 
     // Create the reqwest client to be by the SSE client.

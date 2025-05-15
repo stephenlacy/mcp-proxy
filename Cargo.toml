@@ -40,3 +40,7 @@ thiserror = "2"
 url = "2.4"
 reqwest = { version = "0.12", features = ["json"] }
 parking_lot = "0.12"
+uuid = "1.16.0"
+log = "0.4.27"
+dirs = "6.0.0"
+env_logger = "0.11.8"
