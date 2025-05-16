@@ -1,10 +1,11 @@
 # mcp-proxy
-> A Rust bidirectional MCP proxy between stdio and SSE. Based initially on [sparfenyuk/mcp-proxy](https://github.com/sparfenyuk/mcp-proxy)
+> A Rust bidirectional MCP proxy between stdio and SSE with OAuth. Based initially on [sparfenyuk/mcp-proxy](https://github.com/sparfenyuk/mcp-proxy)
 
 ## Features
 - Connect to a remote server over SSE and expose it as a stdio server
 - Connect to a local server using stdio and expose it as an SSE server
 - Fast startup with minimal memory usage
+- OAuth support for remote servers
 
 ## Usage
 
@@ -66,6 +67,21 @@ mcp-proxy --sse-port 8080 python mcp_server.py
 mcp-proxy --sse-port 8080 -- npx -y @modelcontextprotocol/server-everything
 ```
 
+
+#### Clearing auth
+
+If you are having auth issues you can delete the auth config with:
+
+```
+rm -rf ~/.mcp-auth
+```
+
+#### Logs
+The underlying `rmcp` library dumps excessive logs to stdout. I recommend suppressing them with:
+
+```bash
+RUST_LOG=error mcp-proxy ...
+```
 
 #### Using as a library
 
