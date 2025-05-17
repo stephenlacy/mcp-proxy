@@ -1,5 +1,5 @@
 mod auth;
-mod config;
+pub mod config;
 mod coordination;
 /**
  * MCP Proxy Library

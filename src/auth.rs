@@ -209,10 +209,6 @@ impl AuthClient {
         &self.server_url_hash
     }
 
-    pub fn get_session_id(&self) -> &str {
-        &self.session_id
-    }
-
     pub fn get_redirect_url(&self) -> String {
         format!("http://127.0.0.1:{}/oauth/callback", self.redirect_port)
     }
@@ -574,23 +570,5 @@ impl AuthClient {
         debug!("Saved refreshed auth config");
 
         Ok(new_config)
-    }
-
-    pub async fn delete_auth_config(&self) -> Result<()> {
-        let config_path = self
-            .config_manager
-            .get_auth_config_path(&self.server_url_hash);
-        debug!("Deleting auth config at {:?}", config_path);
-
-        if config_path.exists() {
-            if let Err(e) = std::fs::remove_file(&config_path) {
-                // Handle the error without using ?
-                error!("Failed to delete auth config: {}", e);
-                return Err(AuthError::Other(format!("IO Error: {}", e)));
-            }
-            debug!("Auth config deleted");
-        }
-
-        Ok(())
     }
 }

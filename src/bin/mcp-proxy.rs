@@ -4,12 +4,13 @@
  */
 use clap::{ArgAction, Parser};
 use rmcp_proxy::{
+    config::get_config_dir,
     run_sse_client, run_sse_server,
     sse_client::SseClientConfig,
     sse_server::{SseServerSettings, StdioServerParameters},
 };
-use std::{collections::HashMap, env, error::Error, net::SocketAddr, time::Duration};
-use tracing::debug;
+use std::{collections::HashMap, env, error::Error, net::SocketAddr, process, time::Duration};
+use tracing::{debug, error};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilter};
 
 /// MCP Proxy CLI arguments
@@ -102,6 +103,20 @@ async fn main() -> Result<(), Box<dyn Error>> {
 
         // Run SSE client
         run_sse_client(config).await?;
+    } else if command_or_url == "reset" {
+        let config_dir = get_config_dir();
+
+        println!("Deleting auth config at {:?}", config_dir);
+        if let Err(e) = std::fs::remove_dir_all(&config_dir) {
+            if e.kind() == std::io::ErrorKind::NotFound {
+                println!("Auth config not found at {:?}", config_dir);
+                return Ok(());
+            }
+            // Handle the error without using ?
+            error!("Failed to delete auth config: {}", e);
+            process::exit(1);
+        }
+        debug!("Auth config deleted");
     } else {
         // Start a client connected to the given command, and expose as an SSE server
         debug!("Starting stdio client and SSE server");
