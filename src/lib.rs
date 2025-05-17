@@ -1,3 +1,6 @@
+mod auth;
+pub mod config;
+mod coordination;
 /**
  * MCP Proxy Library
  *
@@ -8,6 +11,7 @@
 pub mod proxy_handler;
 pub mod sse_client;
 pub mod sse_server;
+mod utils;
 
 // Export main functions
 pub use self::sse_client::run_sse_client;
