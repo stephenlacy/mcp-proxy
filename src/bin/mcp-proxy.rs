@@ -17,7 +17,8 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 #[derive(Parser)]
 #[command(
     name = "mcp-proxy",
-    about = "Start the MCP proxy in one of two possible modes: as an SSE or stdio client.",
+    version = env!("CARGO_PKG_VERSION"),
+    about = concat!("MCP Proxy v",env!("CARGO_PKG_VERSION"),". Start the MCP proxy in one of two possible modes: as an SSE or stdio client."),
     long_about = None,
     after_help = "Examples:\n  \
         Connect to a remote SSE server:\n  \
