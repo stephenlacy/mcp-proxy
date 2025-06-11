@@ -119,9 +119,7 @@ pub async fn run_sse_client(config: SseClientConfig) -> Result<(), Box<dyn StdEr
     let client_info = ClientInfo {
         protocol_version: Default::default(),
         capabilities: ClientCapabilities::builder()
-            .enable_experimental()
-            .enable_roots()
-            .enable_roots_list_changed()
+            // Use minimal capabilities to avoid validation errors
             .enable_sampling()
             .build(),
         ..Default::default()

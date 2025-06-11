@@ -35,28 +35,17 @@ impl ServerHandler for ProxyHandler {
         let client = self.client.clone();
         let guard = client.lock().await;
 
-        // Check if the server has tools capability and forward the request
-        match self.cached_info.capabilities.tools {
-            Some(_) => {
-                match guard.list_tools(request).await {
-                    // Forward request to client
-                    Ok(result) => {
-                        debug!(
-                            "Proxying list_tools response with {} tools",
-                            result.tools.len()
-                        );
-                        Ok(result)
-                    }
-                    Err(err) => {
-                        tracing::error!("Error listing tools: {:?}", err);
-                        // Return empty list instead of error
-                        Ok(ListToolsResult::default())
-                    }
-                }
+        match guard.list_tools(request).await {
+            Ok(result) => {
+                debug!(
+                    "Proxying list_tools response with {} tools",
+                    result.tools.len()
+                );
+                Ok(result)
             }
-            None => {
-                // Server doesn't support tools, return empty list
-                tracing::error!("Server doesn't support tools capability");
+            Err(err) => {
+                tracing::error!("Error listing tools: {:?}", err);
+                // Return empty list instead of error
                 Ok(ListToolsResult::default())
             }
         }
@@ -70,29 +59,18 @@ impl ServerHandler for ProxyHandler {
         let client = self.client.clone();
         let guard = client.lock().await;
 
-        // Check if the server has tools capability and forward the request
-        match self.cached_info.capabilities.tools {
-            Some(_) => {
-                match guard.call_tool(request.clone()).await {
-                    Ok(result) => {
-                        debug!("Tool call succeeded");
-                        Ok(result)
-                    }
-                    Err(err) => {
-                        tracing::error!("Error calling tool: {:?}", err);
-                        // Return an error result instead of propagating the error
-                        Ok(CallToolResult::error(vec![Content::text(format!(
-                            "Error: {}",
-                            err
-                        ))]))
-                    }
-                }
+        match guard.call_tool(request.clone()).await {
+            Ok(result) => {
+                debug!("Tool call succeeded");
+                Ok(result)
             }
-            None => {
-                tracing::error!("Server doesn't support tools capability");
-                Ok(CallToolResult::error(vec![Content::text(
-                    "Server doesn't support tools capability",
-                )]))
+            Err(err) => {
+                tracing::error!("Error calling tool: {:?}", err);
+                // Return an error result instead of propagating the error
+                Ok(CallToolResult::error(vec![Content::text(format!(
+                    "Error: {}",
+                    err
+                ))]))
             }
         }
     }
