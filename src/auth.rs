@@ -172,6 +172,7 @@ impl AuthClient {
         let response = self
             .http_client
             .post(registration_endpoint)
+            .header("Content-Type", "application/json")
             .json(&registration_request)
             .send()
             .await?;
@@ -382,15 +383,20 @@ impl AuthClient {
         // Exchange the code for a token
         let redirect_uri = self.get_redirect_url();
 
+        let form_data = [
+            ("code", code.to_string()),
+            ("grant_type", "authorization_code".to_string()),
+            ("client_id", client_registration.client_id.clone()),
+            ("redirect_uri", redirect_uri),
+        ];
+
+        debug!("Token exchange form data: {:?}", form_data);
+
         let response = self
             .http_client
             .post(token_endpoint)
-            .form(&[
-                ("code", code.to_string()),
-                ("grant_type", "authorization_code".to_string()),
-                ("client_id", client_registration.client_id.clone()),
-                ("redirect_uri", redirect_uri),
-            ])
+            .header("Content-Type", "application/x-www-form-urlencoded")
+            .form(&form_data)
             .send()
             .await?;
 
