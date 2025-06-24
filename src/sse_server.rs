@@ -57,7 +57,7 @@ pub async fn run_sse_server(
     }
 
     // Create child process
-    let tokio_process = TokioChildProcess::new(&mut command)?;
+    let tokio_process = TokioChildProcess::new(command)?;
 
     let client_info = ClientInfo {
         protocol_version: Default::default(),
@@ -73,7 +73,7 @@ pub async fn run_sse_server(
 
     // Get server info
     let server_info = client.peer_info();
-    info!("Connected to server: {}", server_info.server_info.name);
+    info!("Connected to server: {}", server_info.unwrap().server_info.name);
 
     // Create proxy handler
     let proxy_handler = ProxyHandler::new(client);

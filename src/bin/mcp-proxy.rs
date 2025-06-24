@@ -5,7 +5,8 @@
 use clap::{ArgAction, Parser};
 use rmcp_proxy::{
     config::get_config_dir,
-    run_sse_client, run_sse_server,
+    run_sse_client,
+    run_sse_server,
     sse_client::SseClientConfig,
     sse_server::{SseServerSettings, StdioServerParameters},
 };
@@ -24,10 +25,10 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
         Connect to a remote SSE server:\n  \
         mcp-proxy http://localhost:8080/sse\n\n  \
         Expose a local stdio server as an SSE server:\n  \
-        mcp-proxy your-command --sse-port 8080 -e KEY VALUE -e ANOTHER_KEY ANOTHER_VALUE\n  \
-        mcp-proxy --sse-port 8080 -- your-command --arg1 value1 --arg2 value2\n  \
-        mcp-proxy --sse-port 8080 -- python mcp_server.py\n  \
-        mcp-proxy --sse-port 8080 --sse-host 0.0.0.0 -- npx -y @modelcontextprotocol/server-everything
+        mcp-proxy your-command --port 8080 -e KEY VALUE -e ANOTHER_KEY ANOTHER_VALUE\n  \
+        mcp-proxy --port 8080 -- your-command --arg1 value1 --arg2 value2\n  \
+        mcp-proxy --port 8080 -- python mcp_server.py\n  \
+        mcp-proxy --port 8080 --host 0.0.0.0 -- npx -y @modelcontextprotocol/server-everything
 ",
 )]
 struct Cli {
@@ -53,11 +54,11 @@ struct Cli {
     pass_environment: bool,
 
     /// Port to expose an SSE server on. Default is a random port
-    #[arg(long = "sse-port", default_value = "0")]
+    #[arg(long = "port", default_value = "0")]
     sse_port: u16,
 
     /// Host to expose an SSE server on. Default is 127.0.0.1
-    #[arg(long = "sse-host", default_value = "127.0.0.1")]
+    #[arg(long = "host", default_value = "127.0.0.1")]
     sse_host: String,
 }
 
@@ -97,13 +98,13 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
 
         // Create SSE client config
-        let config = SseClientConfig {
+        let sse_client_config = SseClientConfig {
             url: command_or_url,
             headers,
         };
 
         // Run SSE client
-        run_sse_client(config).await?;
+        run_sse_client(sse_client_config).await?;
     } else if command_or_url == "reset" {
         let config_dir = get_config_dir();
 

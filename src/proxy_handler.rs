@@ -6,7 +6,7 @@ use rmcp::{
         CallToolRequestParam, CallToolResult, ClientInfo, Content, Implementation, ListToolsResult,
         PaginatedRequestParam, ServerInfo,
     },
-    service::{RequestContext, RunningService},
+    service::{NotificationContext, RequestContext, RunningService},
     Error, RoleClient, RoleServer, ServerHandler,
 };
 use std::sync::Arc;
@@ -280,7 +280,7 @@ impl ServerHandler for ProxyHandler {
         }
     }
 
-    async fn on_progress(&self, notification: rmcp::model::ProgressNotificationParam) {
+    async fn on_progress(&self, notification: rmcp::model::ProgressNotificationParam, _context: NotificationContext<RoleServer>) {
         // Get a lock on the client
         let client = self.client.clone();
         let guard = client.lock().await;
@@ -294,7 +294,7 @@ impl ServerHandler for ProxyHandler {
         }
     }
 
-    async fn on_cancelled(&self, notification: rmcp::model::CancelledNotificationParam) {
+    async fn on_cancelled(&self, notification: rmcp::model::CancelledNotificationParam, _context: NotificationContext<RoleServer>) {
         // Get a lock on the client
         let client = self.client.clone();
         let guard = client.lock().await;
@@ -314,14 +314,15 @@ impl ProxyHandler {
         let peer_info = client.peer_info();
 
         // Create a ServerInfo object that forwards the server's capabilities
+        let peer_info_data = peer_info.unwrap();
         let cached_info = ServerInfo {
-            protocol_version: peer_info.protocol_version.clone(),
+            protocol_version: peer_info_data.protocol_version.clone(),
             server_info: Implementation {
-                name: peer_info.server_info.name.clone(),
-                version: peer_info.server_info.version.clone(),
+                name: peer_info_data.server_info.name.clone(),
+                version: peer_info_data.server_info.version.clone(),
             },
-            instructions: peer_info.instructions.clone(),
-            capabilities: peer_info.capabilities.clone(),
+            instructions: peer_info_data.instructions.clone(),
+            capabilities: peer_info_data.capabilities.clone(),
         };
 
         Self {

@@ -1,20 +1,22 @@
-use http::{header::AUTHORIZATION, HeaderName, HeaderValue};
 use log::debug;
 use reqwest::Client as HttpClient;
 
+use bytes::Bytes;
+use eventsource_stream::Eventsource;
+use futures::StreamExt;
 /**
  * Create a local server that proxies requests to a remote server over SSE.
  */
 use rmcp::{
     model::{ClientCapabilities, ClientInfo},
-    transport::{
-        sse::{ReqwestSseClient, SseTransport},
-        stdio,
-    },
+    transport::{async_rw::AsyncRwTransport, stdio},
     ServiceExt,
 };
-use std::{collections::HashMap, error::Error as StdError, str::FromStr, sync::Arc};
-use tracing::info;
+use serde_json::Value;
+use std::{collections::HashMap, error::Error as StdError, sync::Arc};
+use tokio::io::AsyncWrite;
+use tokio_util::io::StreamReader;
+use tracing::{error, info, warn};
 
 use crate::{
     auth::AuthClient,
@@ -27,6 +29,65 @@ use crate::{
 pub struct SseClientConfig {
     pub url: String,
     pub headers: HashMap<String, String>,
+}
+
+/// SSE Writer implementation for outgoing messages
+/// TODO: remove in the next major version since SSE is deprecated
+struct SseWriter {
+    client: HttpClient,
+    message_url: String,
+}
+
+impl AsyncWrite for SseWriter {
+    fn poll_write(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+        buf: &[u8],
+    ) -> std::task::Poll<Result<usize, std::io::Error>> {
+        if let Ok(json_str) = std::str::from_utf8(buf) {
+            let lines: Vec<&str> = json_str.lines().collect();
+            for line in lines {
+                if !line.trim().is_empty() {
+                    if let Ok(json_value) = serde_json::from_str::<Value>(line) {
+                        let client = self.client.clone();
+                        let url = self.message_url.clone();
+
+                        tokio::spawn(async move {
+                            match client.post(&url).json(&json_value).send().await {
+                                Ok(response) => {
+                                    if !response.status().is_success() {
+                                        warn!(
+                                            "Message POST failed with status: {}",
+                                            response.status()
+                                        );
+                                    }
+                                }
+                                Err(e) => {
+                                    error!("Failed to send message: {}", e);
+                                }
+                            }
+                        });
+                    }
+                }
+            }
+        }
+
+        std::task::Poll::Ready(Ok(buf.len()))
+    }
+
+    fn poll_flush(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), std::io::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
+
+    fn poll_shutdown(
+        self: std::pin::Pin<&mut Self>,
+        _cx: &mut std::task::Context<'_>,
+    ) -> std::task::Poll<Result<(), std::io::Error>> {
+        std::task::Poll::Ready(Ok(()))
+    }
 }
 
 /// Run the SSE client
@@ -85,60 +146,100 @@ pub async fn run_sse_client(config: SseClientConfig) -> Result<(), Box<dyn StdEr
         }
     };
 
-    // Create the header map
+    // Create the header map for authenticated requests
     let mut headers = reqwest::header::HeaderMap::new();
     for (key, value) in config.headers {
-        headers.insert(HeaderName::from_str(&key)?, value.parse()?);
+        headers.insert(
+            reqwest::header::HeaderName::from_bytes(key.as_bytes())?,
+            reqwest::header::HeaderValue::from_str(&value)?,
+        );
     }
 
     if let Some(auth_config) = auth_config {
         if auth_config.access_token.is_none() {
             return Err("Access token is empty".into());
         }
-        // Add the authentication headers
         headers.insert(
-            AUTHORIZATION,
-            HeaderValue::from_str(&format!(
-                "Bearer {}",
-                auth_config.access_token.as_ref().unwrap()
-            ))?,
+            reqwest::header::AUTHORIZATION,
+            format!("Bearer {}", auth_config.access_token.as_ref().unwrap()).parse()?,
         );
     }
 
-    // Create the reqwest client to be by the SSE client.
     let client = reqwest::Client::builder()
         .default_headers(headers)
         .build()?;
 
-    let sse_client = ReqwestSseClient::new_with_client(&config.url, client).await?;
+    // Parse URL to get base URL and endpoints
+    let base_url = config.url.trim_end_matches("/sse");
+    let sse_url = format!("{}/sse", base_url);
+    let message_url = format!("{}/message", base_url);
 
-    // Create SSE transport
-    let transport = SseTransport::start_with_client(sse_client).await?;
+    info!("Connecting to SSE endpoint: {}", sse_url);
+    info!("Message endpoint: {}", message_url);
 
-    // Create client info with full capabilities to ensure we can use all the server's features
+    // Create SSE stream
+    let response = client
+        .get(&sse_url)
+        .header("Accept", "text/event-stream")
+        .header("Cache-Control", "no-cache")
+        .send()
+        .await?;
+
+    if !response.status().is_success() {
+        return Err(format!("SSE connection failed with status: {}", response.status()).into());
+    }
+
+    let event_stream = response.bytes_stream().eventsource();
+
+    // Convert SSE events to bytes stream for JSON-RPC
+    let sse_stream = event_stream.map(|event_result| {
+        match event_result {
+            Ok(event) => {
+                // Convert SSE event data to JSON-RPC line
+                let mut data = event.data.into_bytes();
+                data.push(b'\n');
+                Ok(Bytes::from(data))
+            }
+            Err(e) => {
+                error!("SSE error: {}", e);
+                Err(std::io::Error::new(std::io::ErrorKind::Other, e))
+            }
+        }
+    });
+
+    // Create reader from SSE stream
+    let reader = StreamReader::new(sse_stream);
+
+    // Create writer for outgoing messages
+    let writer = SseWriter {
+        client: client.clone(),
+        message_url,
+    };
+
+    // Create transport using AsyncRwTransport
+    let transport = AsyncRwTransport::new(reader, writer);
+
     let client_info = ClientInfo {
         protocol_version: Default::default(),
-        capabilities: ClientCapabilities::builder()
-            // Use minimal capabilities to avoid validation errors
-            .enable_sampling()
-            .build(),
+        capabilities: ClientCapabilities::builder().enable_sampling().build(),
         ..Default::default()
     };
 
-    // Create client service with transport
+    // Create client service
     let client = client_info.serve(transport).await?;
 
     // Get server info
     let server_info = client.peer_info();
-    info!("Connected to server: {}", server_info.server_info.name);
+    info!(
+        "Connected to server: {}",
+        server_info.unwrap().server_info.name
+    );
 
     // Create proxy handler
     let proxy_handler = ProxyHandler::new(client);
 
-    // Create stdio transport
+    // Create stdio transport and serve
     let stdio_transport = stdio();
-
-    // Create server with proxy handler and stdio transport
     let server = proxy_handler.serve(stdio_transport).await?;
 
     // Wait for completion
@@ -146,3 +247,4 @@ pub async fn run_sse_client(config: SseClientConfig) -> Result<(), Box<dyn StdEr
 
     Ok(())
 }
+
