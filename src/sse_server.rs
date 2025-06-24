@@ -73,7 +73,10 @@ pub async fn run_sse_server(
 
     // Get server info
     let server_info = client.peer_info();
-    info!("Connected to server: {}", server_info.unwrap().server_info.name);
+    info!(
+        "Connected to server: {}",
+        server_info.unwrap().server_info.name
+    );
 
     // Create proxy handler
     let proxy_handler = ProxyHandler::new(client);

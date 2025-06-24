@@ -280,7 +280,11 @@ impl ServerHandler for ProxyHandler {
         }
     }
 
-    async fn on_progress(&self, notification: rmcp::model::ProgressNotificationParam, _context: NotificationContext<RoleServer>) {
+    async fn on_progress(
+        &self,
+        notification: rmcp::model::ProgressNotificationParam,
+        _context: NotificationContext<RoleServer>,
+    ) {
         // Get a lock on the client
         let client = self.client.clone();
         let guard = client.lock().await;
@@ -294,7 +298,11 @@ impl ServerHandler for ProxyHandler {
         }
     }
 
-    async fn on_cancelled(&self, notification: rmcp::model::CancelledNotificationParam, _context: NotificationContext<RoleServer>) {
+    async fn on_cancelled(
+        &self,
+        notification: rmcp::model::CancelledNotificationParam,
+        _context: NotificationContext<RoleServer>,
+    ) {
         // Get a lock on the client
         let client = self.client.clone();
         let guard = client.lock().await;

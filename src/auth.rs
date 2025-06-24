@@ -416,7 +416,7 @@ impl AuthClient {
         let token_data: AuthTokenResponse = response.json().await?;
         if token_data.access_token.is_none() {
             return Err(AuthError::Other(
-                "No access_token in refresh response".to_string(),
+                "No access_token in token response".to_string(),
             ));
         }
 

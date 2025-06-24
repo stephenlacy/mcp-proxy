@@ -5,10 +5,13 @@
 use clap::{ArgAction, Parser};
 use rmcp_proxy::{
     config::get_config_dir,
-    run_sse_client,
-    run_sse_server,
+    run_sse_client, run_sse_server, run_streamable_http_client, run_streamable_http_server,
     sse_client::SseClientConfig,
     sse_server::{SseServerSettings, StdioServerParameters},
+    streamable_http_client::StreamableHttpClientConfig,
+    streamable_http_server::{
+        StdioServerParameters as StreamableStdioServerParameters, StreamableHttpServerSettings,
+    },
 };
 use std::{collections::HashMap, env, error::Error, net::SocketAddr, process, time::Duration};
 use tracing::{debug, error};
@@ -19,16 +22,21 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt, EnvFilte
 #[command(
     name = "mcp-proxy",
     version = env!("CARGO_PKG_VERSION"),
-    about = concat!("MCP Proxy v",env!("CARGO_PKG_VERSION"),". Start the MCP proxy in one of two possible modes: as an SSE or stdio client."),
+    about = concat!("MCP Proxy v",env!("CARGO_PKG_VERSION"),". Start the MCP proxy in one of two possible modes: as an SSE/Streamable HTTP client or stdio-to-SSE/Streamable HTTP server."),
     long_about = None,
     after_help = "Examples:\n  \
         Connect to a remote SSE server:\n  \
         mcp-proxy http://localhost:8080/sse\n\n  \
+        Connect to a remote Streamable HTTP server:\n  \
+        mcp-proxy http://localhost:8080/mcp --transport streamable-http\n\n  \
         Expose a local stdio server as an SSE server:\n  \
         mcp-proxy your-command --port 8080 -e KEY VALUE -e ANOTHER_KEY ANOTHER_VALUE\n  \
         mcp-proxy --port 8080 -- your-command --arg1 value1 --arg2 value2\n  \
         mcp-proxy --port 8080 -- python mcp_server.py\n  \
-        mcp-proxy --port 8080 --host 0.0.0.0 -- npx -y @modelcontextprotocol/server-everything
+        mcp-proxy --port 8080 --host 0.0.0.0 -- npx -y @modelcontextprotocol/server-everything\n\n  \
+        Expose a local stdio server as a Streamable HTTP server:\n  \
+        mcp-proxy your-command --port 8080 --transport streamable-http\n  \
+        mcp-proxy --port 8080 --transport streamable-http -- python mcp_server.py
 ",
 )]
 struct Cli {
@@ -60,6 +68,10 @@ struct Cli {
     /// Host to expose an SSE server on. Default is 127.0.0.1
     #[arg(long = "host", default_value = "127.0.0.1")]
     sse_host: String,
+
+    /// Transport type to use. Options: sse, streamable-http
+    #[arg(long = "transport", default_value = "auto")]
+    transport: String,
 }
 
 #[tokio::main]
@@ -84,11 +96,8 @@ async fn main() -> Result<(), Box<dyn Error>> {
         },
     };
 
-    // Check if it's a URL (SSE client mode) or a command (stdio client mode)
+    // Check if it's a URL (client mode) or a command (server mode)
     if command_or_url.starts_with("http://") || command_or_url.starts_with("https://") {
-        // Start a client connected to the SSE server, and expose as a stdio server
-        debug!("Starting SSE client and stdio server");
-
         // Convert headers from Vec<String> to HashMap<String, String>
         let mut headers = HashMap::new();
         for i in (0..cli.headers.len()).step_by(2) {
@@ -97,14 +106,40 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         }
 
-        // Create SSE client config
-        let sse_client_config = SseClientConfig {
-            url: command_or_url,
-            headers,
+        // Determine transport type
+        let transport_type = if cli.transport == "auto" {
+            // Auto-detect based on URL pattern
+            if command_or_url.contains("/sse") {
+                "sse"
+            } else {
+                "streamable-http"
+            }
+        } else {
+            cli.transport.as_str()
         };
 
-        // Run SSE client
-        run_sse_client(sse_client_config).await?;
+        match transport_type {
+            "sse" => {
+                debug!("Starting SSE client and stdio server");
+                let sse_client_config = SseClientConfig {
+                    url: command_or_url,
+                    headers,
+                };
+                run_sse_client(sse_client_config).await?;
+            }
+            "streamable-http" => {
+                debug!("Starting Streamable HTTP client and stdio server");
+                let streamable_http_client_config = StreamableHttpClientConfig {
+                    url: command_or_url,
+                    headers,
+                };
+                run_streamable_http_client(streamable_http_client_config).await?;
+            }
+            _ => {
+                eprintln!("Error: unsupported transport type: {}", transport_type);
+                std::process::exit(1);
+            }
+        }
     } else if command_or_url == "reset" {
         let config_dir = get_config_dir();
 
@@ -120,9 +155,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
         }
         debug!("Auth config deleted");
     } else {
-        // Start a client connected to the given command, and expose as an SSE server
-        debug!("Starting stdio client and SSE server");
-
         // The environment variables passed to the server process
         let mut env_map = HashMap::new();
 
@@ -140,21 +172,59 @@ async fn main() -> Result<(), Box<dyn Error>> {
             }
         }
 
-        // Create stdio parameters
-        let stdio_params = StdioServerParameters {
-            command: command_or_url,
-            args: cli.args,
-            env: env_map,
+        // Determine transport type for server mode
+        let transport_type = if cli.transport == "auto" {
+            "sse" // Default to SSE for backwards compatibility
+        } else {
+            cli.transport.as_str()
         };
 
-        // Create SSE server settings
-        let sse_settings = SseServerSettings {
-            bind_addr: format!("{}:{}", cli.sse_host, cli.sse_port).parse::<SocketAddr>()?,
-            keep_alive: Some(Duration::from_secs(15)),
-        };
+        match transport_type {
+            "sse" => {
+                debug!("Starting stdio client and SSE server");
 
-        // Run SSE server
-        run_sse_server(stdio_params, sse_settings).await?;
+                // Create stdio parameters
+                let stdio_params = StdioServerParameters {
+                    command: command_or_url,
+                    args: cli.args,
+                    env: env_map,
+                };
+
+                // Create SSE server settings
+                let sse_settings = SseServerSettings {
+                    bind_addr: format!("{}:{}", cli.sse_host, cli.sse_port)
+                        .parse::<SocketAddr>()?,
+                    keep_alive: Some(Duration::from_secs(15)),
+                };
+
+                // Run SSE server
+                run_sse_server(stdio_params, sse_settings).await?;
+            }
+            "streamable-http" => {
+                debug!("Starting stdio client and Streamable HTTP server");
+
+                // Create stdio parameters
+                let stdio_params = StreamableStdioServerParameters {
+                    command: command_or_url,
+                    args: cli.args,
+                    env: env_map,
+                };
+
+                // Create Streamable HTTP server settings
+                let streamable_settings = StreamableHttpServerSettings {
+                    bind_addr: format!("{}:{}", cli.sse_host, cli.sse_port)
+                        .parse::<SocketAddr>()?,
+                    keep_alive: Some(Duration::from_secs(15)),
+                };
+
+                // Run Streamable HTTP server
+                run_streamable_http_server(stdio_params, streamable_settings).await?;
+            }
+            _ => {
+                eprintln!("Error: unsupported transport type: {}", transport_type);
+                std::process::exit(1);
+            }
+        }
     }
 
     Ok(())

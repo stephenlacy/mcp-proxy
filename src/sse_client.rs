@@ -247,4 +247,3 @@ pub async fn run_sse_client(config: SseClientConfig) -> Result<(), Box<dyn StdEr
 
     Ok(())
 }
-
