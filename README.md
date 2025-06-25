@@ -1,11 +1,11 @@
 # mcp-proxy
-> A Rust bidirectional MCP proxy between stdio and SSE with OAuth. Based initially on [sparfenyuk/mcp-proxy](https://github.com/sparfenyuk/mcp-proxy)
+> A Rust bidirectional MCP proxy supporting SSE and Streamable HTTP transports with OAuth.
 
 ## Features
-- Connect to a remote server over SSE and expose it as a stdio server
-- Connect to a local server using stdio and expose it as an SSE server
-- Fast startup with minimal memory usage
-- OAuth support for remote servers
+- **Multiple transports**: SSE and Streamable HTTP
+- **OAuth authentication**: Full OAuth flow with automatic token refresh
+- **Bidirectional proxy**: Connect remote servers to local clients or expose local servers remotely
+- **Fast and lightweight**: Built in rust for performance
 
 ## Usage
 
@@ -14,7 +14,7 @@
 ```bash
 # from crates.io
 cargo install rmcp-proxy
-
+# from github
 cargo install --git https://github.com/stephenlacy/mcp-proxy
 ```
 
@@ -28,17 +28,27 @@ cargo build --release
 
 The proxy can operate in two modes:
 
-#### 1. SSE Client Mode
+#### 1. Remote Client Mode
 
-Connect to a remote MCP server over SSE and expose it as a stdio server.
+Connect to a remote MCP server and expose it as a local stdio server. Supports both SSE and Streamable HTTP transports with automatic detection.
 
-This allows a local client such as Claude or Cursor connect to a remote server running on SSE.
+**Transport Detection**:
+- URLs containing `/sse` → Uses SSE transport
+- All other URLs → Uses Streamable HTTP transport
+- Override with `--transport` flag
 
-##### Example
+##### Basic Examples
 
 ```bash
+# Streamable HTTP
+mcp-proxy http://localhost:9090/mcp/instances_abc123
+
+# SSE transport
 mcp-proxy http://localhost:8080/sse
-mcp-proxy --headers Authorization 'Bearer YOUR_TOKEN' http://localhost:8080/sse
+mcp-proxy --transport sse http://localhost:8080/events
+
+# Specific
+mcp-proxy --transport streamable-http http://localhost:9090/api
 ```
 
 ##### Using with Claude or Cursor
@@ -46,84 +56,103 @@ mcp-proxy --headers Authorization 'Bearer YOUR_TOKEN' http://localhost:8080/sse
 ```json
 {
   "mcpServers": {
-    "mcp-proxy": {
+    "my-remote-server": {
       "command": "mcp-proxy",
-      "args": ["http://example.com/sse"]
+      "args": ["http://example.com/mcp/instances_abc123"]
+    },
+    "sse-server": {
+      "command": "mcp-proxy", 
+      "args": ["--transport", "sse", "http://example.com/sse"]
     }
   }
 }
 ```
 
-#### 2. Stdio Client Mode
+#### 2. Local Server Mode
 
-Connect to a local command using stdio and expose it as an SSE server.
-
-This allows remote SSE connections to a local stdio server.
+Connect to a local MCP server via stdio and expose it as a remote server. Supports both SSE and Streamable HTTP endpoints.
 
 ```bash
-mcp-proxy --sse-port 8080 -- your-command --arg1 value1 --arg2 value2
-mcp-proxy --sse-port 8080 -e KEY VALUE -e ANOTHER_KEY ANOTHER_VALUE -- your-command --arg1 value1 --arg2 value2
-mcp-proxy --sse-port 8080 python mcp_server.py
-mcp-proxy --sse-port 8080 -- npx -y @modelcontextprotocol/server-everything
+# Expose as SSE server
+mcp-proxy --port 8080 -- your-command --arg1 value1 --arg2 value2
+mcp-proxy --port 8080 python mcp_server.py
+mcp-proxy --port 8080 -- npx -y @modelcontextprotocol/server-everything
+
+# Or http+streamable
+mcp-proxy --port 9090 --transport streamable-http -- python mcp_server.py
+
+mcp-proxy --port 8080 -e KEY VALUE -e ANOTHER_KEY ANOTHER_VALUE -- your-command
 ```
 
+### Authentication Management
 
-#### Clearing auth
+#### Clearing Auth Cache
 
-If you are having auth issues you can delete the auth config with:
+If you encounter authentication issues, clear the auth cache:
 
-```
+```bash
+# Clear all auth data
+mcp-proxy reset
+
+# Or manually delete the directory
 rm -rf ~/.mcp-auth
 ```
 
-#### Logs
-The underlying `rmcp` library dumps excessive logs to stdout. I recommend suppressing them with:
+### Command Line Options
 
 ```bash
-RUST_LOG=error mcp-proxy ...
+# Transport selection
+--transport <TRANSPORT>    # sse, streamable-http, or auto (default: auto)
+
+# Server mode options
+--port <PORT>             # Port for local server mode (default: random)
+--host <HOST>             # Host to bind to (default: 127.0.0.1)
+
+# Environment variables (server mode)
+-e, --env <KEY> <VALUE>   # Set environment variable
+--pass-environment        # Pass through all environment variables
+
+# Headers (client mode) 
+-H, --headers <KEY> <VALUE>  # Add custom headers
+
+# Reset auth
+mcp-proxy reset           # Clear all stored auth data
 ```
 
-#### Using as a library
+### Logging
+> The upstream rmcp crate dumps noisy logs unfortunately
+
+Control log verbosity with the `RUST_LOG` environment variable:
+
+```bash
+# Minimal logging
+RUST_LOG=error mcp-proxy http://example.com/mcp
+RUST_LOG=debug mcp-proxy http://example.com/mcp
+RUST_LOG=info mcp-proxy http://example.com/mcp
+```
+
+### Library Usage
 
 ```rust
-use rmcp::{
-    ServiceExt,
-    model::{ClientCapabilities, ClientInfo},
-    transport::{sse::SseTransport, stdio},
+use rmcp_proxy::{
+    sse_client::run_sse_client,
+    streamable_http_client::run_streamable_http_client,
+    StreamableHttpClientConfig, SseClientConfig
 };
 
-use rmcp_proxy::proxy_handler::ProxyHandler;
-
-// Create SSE transport
-let transport = SseTransport::start(&config.url).await?;
-
-let client_info = ClientInfo {
-    protocol_version: Default::default(),
-    capabilities: ClientCapabilities::builder()
-        .enable_experimental()
-        .enable_roots()
-        .enable_roots_list_changed()
-        .enable_sampling()
-        .build(),
-    ..Default::default()
+// Streamable HTTP client
+let config = StreamableHttpClientConfig {
+    url: "http://example.com/mcp/instances_abc123".to_string(),
+    headers: HashMap::new(),
 };
+run_streamable_http_client(config).await?;
 
-// Create client service with transport
-let client = client_info.serve(transport).await?;
-
-// Get server info
-let server_info = client.peer_info();
-info!("Connected to server: {}", server_info.server_info.name);
-
-// Create proxy handler
-let proxy_handler = ProxyHandler::new(client);
-
-// Create stdio transport
-let stdio_transport = stdio();
-
-// Create server with proxy handler and stdio transport
-let server = proxy_handler.serve(stdio_transport).await?;
-
+// SSE client  
+let config = SseClientConfig {
+    url: "http://example.com/sse".to_string(),
+    headers: HashMap::new(),
+};
+run_sse_client(config).await?;
 ```
 
 
